@@ -5,7 +5,10 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.SemanticKernel;
+using Microsoft.SemanticKernel.ChatCompletion;
+using Microsoft.SemanticKernel.Connectors.AzureOpenAI;
 using Microsoft.SemanticKernel.Data;
+using Microsoft.SemanticKernel.Embeddings;
 using VectorStoreRag;
 using VectorStoreRag.Options;
 
@@ -13,7 +16,9 @@ using VectorStoreRag.Options;
 HostApplicationBuilder builder = Host.CreateApplicationBuilder(args);
 
 //添加本地的secrets的配置
+builder.Configuration.AddJsonFile("appsettings.json", optional: true, reloadOnChange: true);
 builder.Configuration.AddUserSecrets<Program>();
+builder.Configuration.AddEnvironmentVariables();
 builder.Services.Configure<RagConfig>(
     builder.Configuration.GetSection(RagConfig.ConfigSectionName)
 );
@@ -29,18 +34,23 @@ CancellationToken appShutdownCancellationToken = appShutdownCancellationTokenSou
 builder.Services.AddKeyedSingleton("AppShutdown", appShutdownCancellationTokenSource);
 
 //将SK Kernel注册到依赖注入容器中，并且添加Chat Completion服务以及Text Embedding 生成服务
-var kernelBuilder = builder.Services.AddKernel();
+//var kernelBuilder = builder.Services.AddKernel();
 
 switch(appConfig.RagConfig.AIChatService)
 {
     case "AzureOpenAI":
-        kernelBuilder.AddAzureOpenAIChatCompletion(
-            appConfig.AzureOpenAIConfig.ChatDeploymentName,
-            appConfig.AzureOpenAIConfig.Endpoint,
-            new AzureCliCredential());
+        builder.Services.AddSingleton<IChatCompletionService>(
+            new AzureOpenAIChatCompletionService(
+                deploymentName:appConfig.AzureOpenAIConfig.ChatDeploymentName,
+                apiKey: appConfig.AzureOpenAIConfig.ApiKey,
+                endpoint: appConfig.AzureOpenAIConfig.Endpoint,
+                modelId: appConfig.AzureOpenAIConfig.ChatDeploymentName
+            )
+        );
+
         break;
     case "OpenAI":
-        kernelBuilder.AddOpenAIChatCompletion(
+        builder.Services.AddOpenAIChatCompletion(
             appConfig.OpenAIConfig.ModelId,
             appConfig.OpenAIConfig.ApiKey,
             appConfig.OpenAIConfig.OrgId
@@ -54,17 +64,23 @@ switch(appConfig.RagConfig.AIChatService)
 }
 
 
+
+
 //添加text embedding生成服务
 switch (appConfig.RagConfig.AIEmbeddingService)
 {
     case "AzureOpenAIEmbeddings":
-        kernelBuilder.AddAzureOpenAITextEmbeddingGeneration(
-            appConfig.AzureOpenAIEmbeddingsConfig.DeploymentName,
-            appConfig.AzureOpenAIEmbeddingsConfig.Endpoint,
-            new AzureCliCredential());
+        builder.Services.AddSingleton<ITextEmbeddingGenerationService>(
+            new AzureOpenAITextEmbeddingGenerationService(
+                appConfig.AzureOpenAIEmbeddingsConfig.DeploymentName,
+                appConfig.AzureOpenAIEmbeddingsConfig.Endpoint,
+                appConfig.AzureOpenAIEmbeddingsConfig.ApiKey,
+                appConfig.AzureOpenAIEmbeddingsConfig.DeploymentName
+            )
+        );
         break;
     case "OpenAIEmbeddings":
-        kernelBuilder.AddOpenAITextEmbeddingGeneration(
+        builder.Services.AddOpenAITextEmbeddingGeneration(
             appConfig.OpenAIEmbeddingsConfig.ModelId,
             appConfig.OpenAIEmbeddingsConfig.ApiKey,
             appConfig.OpenAIEmbeddingsConfig.OrgId);
@@ -79,29 +95,29 @@ switch (appConfig.RagConfig.AIEmbeddingService)
 switch (appConfig.RagConfig.VectorStoreType)
 {
     case "AzureAISearch":
-        kernelBuilder.AddAzureAISearchVectorStoreRecordCollection<TextSnippet<string>>(
+        builder.Services.AddAzureAISearchVectorStoreRecordCollection<TextSnippet<string>>(
             appConfig.RagConfig.CollectionName,
             new Uri(appConfig.AzureAISearchConfig.Endpoint),
             new AzureKeyCredential(appConfig.AzureAISearchConfig.ApiKey));
         break;
     case "AzureCosmosDBMongoDB":
-        kernelBuilder.AddAzureCosmosDBMongoDBVectorStoreRecordCollection<TextSnippet<string>>(
+        builder.Services.AddAzureCosmosDBMongoDBVectorStoreRecordCollection<TextSnippet<string>>(
             appConfig.RagConfig.CollectionName,
             appConfig.AzureCosmosDBMongoDBConfig.ConnectionString,
             appConfig.AzureCosmosDBMongoDBConfig.DatabaseName);
         break;
     case "AzureCosmosDBNoSQL":
-        kernelBuilder.AddAzureCosmosDBNoSQLVectorStoreRecordCollection<TextSnippet<string>>(
+        builder.Services.AddAzureCosmosDBNoSQLVectorStoreRecordCollection<TextSnippet<string>>(
             appConfig.RagConfig.CollectionName,
             appConfig.AzureCosmosDBNoSQLConfig.ConnectionString,
             appConfig.AzureCosmosDBNoSQLConfig.DatabaseName);
         break;
     case "InMemory":
-        kernelBuilder.AddInMemoryVectorStoreRecordCollection<string, TextSnippet<string>>(
+        builder.Services.AddInMemoryVectorStoreRecordCollection<string, TextSnippet<string>>(
             appConfig.RagConfig.CollectionName);
         break;
     case "Qdrant":
-        kernelBuilder.AddQdrantVectorStoreRecordCollection<Guid, TextSnippet<Guid>>(
+        builder.Services.AddQdrantVectorStoreRecordCollection<Guid, TextSnippet<Guid>>(
             appConfig.RagConfig.CollectionName,
             appConfig.QdrantConfig.Host,
             appConfig.QdrantConfig.Port,
@@ -109,12 +125,12 @@ switch (appConfig.RagConfig.VectorStoreType)
             appConfig.QdrantConfig.ApiKey);
         break;
     case "Redis":
-        kernelBuilder.AddRedisJsonVectorStoreRecordCollection<TextSnippet<string>>(
+        builder.Services.AddRedisJsonVectorStoreRecordCollection<TextSnippet<string>>(
             appConfig.RagConfig.CollectionName,
             appConfig.RedisConfig.ConnectionConfiguration);
         break;
     case "Weaviate":
-        kernelBuilder.AddWeaviateVectorStoreRecordCollection<TextSnippet<Guid>>(
+        builder.Services.AddWeaviateVectorStoreRecordCollection<TextSnippet<Guid>>(
             // Weaviate collection names must start with an upper case letter.
             char.ToUpper(appConfig.RagConfig.CollectionName[0], CultureInfo.InvariantCulture) + appConfig.RagConfig.CollectionName.Substring(1),
             null,
@@ -134,16 +150,19 @@ switch (appConfig.RagConfig.VectorStoreType)
     case "AzureCosmosDBNoSQL":
     case "InMemory":
     case "Redis":
-        RegisterServices<string>(builder, kernelBuilder, appConfig);
+        RegisterServices<string>(builder, appConfig);
         break;
     case "Qdrant":
     case "Weaviate":
-        RegisterServices<Guid>(builder, kernelBuilder, appConfig);
+        RegisterServices<Guid>(builder, appConfig);
         break;
     default:
         throw new NotSupportedException($"Vector store type '{appConfig.RagConfig.VectorStoreType}' is not supported.");
 }
 
+builder.Services.AddTransient((serviceProvider) => {
+    return new Kernel(serviceProvider);
+});
 
 
 // Build and run the host.
@@ -151,11 +170,11 @@ using IHost host = builder.Build();
 await host.RunAsync(appShutdownCancellationToken).ConfigureAwait(false);
 
 
-static void RegisterServices<TKey>(HostApplicationBuilder builder, IKernelBuilder kernelBuilder, ApplicationConfig vectorStoreRagConfig)
+static void RegisterServices<TKey>(HostApplicationBuilder builder, ApplicationConfig vectorStoreRagConfig)
     where TKey : notnull
 {
     // Add a text search implementation that uses the registered vector store record collection for search.
-    kernelBuilder.AddVectorStoreTextSearch<TextSnippet<TKey>>(
+    builder.Services.AddVectorStoreTextSearch<TextSnippet<TKey>>(
         new TextSearchStringMapper((result) => (result as TextSnippet<TKey>)!.Text!),
         new TextSearchResultMapper((result) =>
         {

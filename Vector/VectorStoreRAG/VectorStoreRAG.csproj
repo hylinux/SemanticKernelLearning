@@ -6,6 +6,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <NoWarn>$(NoWarn);SKEXP0001;SKEXP0010;SKEXP0020</NoWarn>
+    <UserSecretsId>a59ad47e-6998-4204-b3bb-1158caf0d50f</UserSecretsId>
   </PropertyGroup>
 
   <ItemGroup>
@@ -23,7 +24,14 @@
     <PackageReference Include="Microsoft.SemanticKernel.Connectors.Qdrant" Version="1.47.0-preview" />
     <PackageReference Include="Microsoft.SemanticKernel.Connectors.Redis" Version="1.47.0-preview" />
     <PackageReference Include="Microsoft.SemanticKernel.Connectors.Weaviate" Version="1.47.0-preview" />
+    <PackageReference Include="Microsoft.SemanticKernel.PromptTemplates.Handlebars" Version="1.48.0" />
     <PackageReference Include="PdfPig" Version="0.1.10" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Update="appsettings.json">
+      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+    </None>
   </ItemGroup>
 
 </Project>
